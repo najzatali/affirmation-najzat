@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import shutil
@@ -11,43 +13,43 @@ from ..core.config import settings
 
 
 VOICE_PRESETS = {
-    "alyss": {
+    "alice": {
         "yandex": "alena",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-6%", "pitch": "+2Hz"},
-        "espeak": {"voice": "ru+f3", "speed": 152, "pitch": 58},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-4%", "pitch": "+1Hz"},
+        "espeak": {"voice": "ru+f3", "speed": 150, "pitch": 58},
     },
     "jane": {
         "yandex": "jane",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+0%", "pitch": "+0Hz"},
-        "espeak": {"voice": "ru+f2", "speed": 145, "pitch": 52},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+2%", "pitch": "+0Hz"},
+        "espeak": {"voice": "ru+f2", "speed": 142, "pitch": 52},
     },
     "oksana": {
         "yandex": "oksana",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+4%", "pitch": "-2Hz"},
-        "espeak": {"voice": "ru+f4", "speed": 138, "pitch": 44},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-1%", "pitch": "-2Hz"},
+        "espeak": {"voice": "ru+f4", "speed": 136, "pitch": 44},
     },
     "filipp": {
         "yandex": "filipp",
         "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+0%", "pitch": "+0Hz"},
-        "espeak": {"voice": "ru+m3", "speed": 148, "pitch": 42},
+        "espeak": {"voice": "ru+m3", "speed": 145, "pitch": 42},
     },
     "ermil": {
         "yandex": "ermil",
-        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "-10%", "pitch": "-2Hz"},
-        "espeak": {"voice": "ru+m1", "speed": 136, "pitch": 36},
+        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "-8%", "pitch": "-2Hz"},
+        "espeak": {"voice": "ru+m1", "speed": 138, "pitch": 36},
     },
     "zahar": {
         "yandex": "zahar",
-        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+8%", "pitch": "+2Hz"},
-        "espeak": {"voice": "ru+m5", "speed": 162, "pitch": 50},
+        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+7%", "pitch": "+2Hz"},
+        "espeak": {"voice": "ru+m5", "speed": 154, "pitch": 48},
     },
 }
 
-MUSIC_TRACKS = {
-    "calm-1": "https://assets.mixkit.co/music/443/443.mp3",
-    "calm-2": "https://assets.mixkit.co/music/522/522.mp3",
-    "focus-1": "https://assets.mixkit.co/music/127/127.mp3",
-    "deep-1": "https://assets.mixkit.co/music/493/493.mp3",
+MUSIC_FILTERS = {
+    "calm-1": "0.014*sin(2*PI*174*t)+0.011*sin(2*PI*220*t)+0.007*sin(2*PI*261*t)",
+    "calm-2": "0.012*sin(2*PI*164*t)+0.010*sin(2*PI*207*t)+0.006*sin(2*PI*246*t)",
+    "calm-3": "0.013*sin(2*PI*196*t)+0.010*sin(2*PI*247*t)+0.006*sin(2*PI*294*t)",
+    "deep-1": "0.015*sin(2*PI*130*t)+0.010*sin(2*PI*165*t)+0.006*sin(2*PI*196*t)",
 }
 
 
@@ -68,18 +70,8 @@ def _ffmpeg() -> str:
 
 def _voice_text(language: str) -> str:
     if language == "ru":
-        return "Я есть спокойствие, уверенность и ясность. Я имею устойчивый внутренний баланс."
-    return "I am calm, confident, and clear. I have steady inner balance."
-
-
-def _music_source(track_id: str) -> str:
-    if track_id == "calm-2":
-        return "sine=frequency=174:sample_rate=44100,volume=0.08"
-    if track_id == "focus-1":
-        return "sine=frequency=220:sample_rate=44100,volume=0.06"
-    if track_id == "deep-1":
-        return "sine=frequency=140:sample_rate=44100,volume=0.07"
-    return "sine=frequency=196:sample_rate=44100,volume=0.08"
+        return "Я есть спокойствие и уверенность. Я имею ясный фокус и внутреннюю опору каждый день."
+    return "I am calm and confident. I have clear focus and inner stability every day."
 
 
 async def _edge_save_to_file(text: str, voice_name: str, rate: str, pitch: str, path: str):
@@ -87,21 +79,19 @@ async def _edge_save_to_file(text: str, voice_name: str, rate: str, pitch: str, 
     await communicate.save(path)
 
 
-def _download_file(url: str, path: str):
-    with httpx.Client(timeout=25.0, follow_redirects=True) as client:
-        resp = client.get(url)
-        resp.raise_for_status()
-        with open(path, "wb") as f:
-            f.write(resp.content)
-
-
-def _yandex_preview(text: str, yandex_voice: str) -> bytes:
+def _yandex_preview(text: str, voice_name: str) -> bytes:
     if not settings.yandex_api_key:
         raise RuntimeError("YANDEX_API_KEY is not configured")
+
     headers = {"Authorization": f"Api-Key {settings.yandex_api_key}"}
-    data = {"text": text, "lang": "ru-RU", "voice": yandex_voice, "format": "mp3"}
+    data = {
+        "text": text,
+        "lang": "ru-RU",
+        "voice": voice_name,
+        "format": "mp3",
+    }
     with httpx.Client(timeout=25.0) as client:
-        resp = client.post("https://tts.api.cloud.yandex.net/speech/v1/tts:synthesize", headers=headers, data=data)
+        resp = client.post(settings.yandex_tts_url, headers=headers, data=data)
         resp.raise_for_status()
         return resp.content
 
@@ -123,7 +113,38 @@ def _trim_to_preview(in_path: str, out_path: str, duration_sec: int):
             "-c:a",
             "libmp3lame",
             "-b:a",
-            "128k",
+            "160k",
+            out_path,
+        ]
+    )
+
+
+def _build_generated_music(track_id: str, duration_sec: int, out_path: str):
+    ffmpeg = _ffmpeg()
+    expr = MUSIC_FILTERS.get(track_id, MUSIC_FILTERS["calm-1"])
+    source = f"aevalsrc={expr}:s=44100"
+    fade_out_start = max(0, int(duration_sec) - 2)
+
+    _run(
+        [
+            ffmpeg,
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            source,
+            "-t",
+            str(max(4, int(duration_sec))),
+            "-af",
+            f"lowpass=f=1800,afade=t=in:st=0:d=0.8,afade=t=out:st={fade_out_start}:d=1.8",
+            "-ar",
+            "44100",
+            "-ac",
+            "2",
+            "-c:a",
+            "libmp3lame",
+            "-b:a",
+            "160k",
             out_path,
         ]
     )
@@ -133,105 +154,53 @@ def generate_voice_preview_mp3(voice_id: str, language: str = "ru") -> bytes:
     preset = VOICE_PRESETS.get(voice_id, VOICE_PRESETS["jane"])
     espeak_bin = _pick_espeak()
     ffmpeg = _ffmpeg()
+
     with tempfile.TemporaryDirectory(prefix="voice-preview-") as tmp:
         wav_path = os.path.join(tmp, "preview.wav")
         mp3_path = os.path.join(tmp, "preview.mp3")
-        edge_voice = preset.get("edge", {})
+
         try:
-            if settings.tts_provider.lower() == "yandex":
-                yandex_voice = preset.get("yandex", "jane")
-                data = _yandex_preview(_voice_text(language), yandex_voice)
+            # 1) Best quality for RU/CIS if user provided Yandex key.
+            if settings.yandex_api_key:
+                data = _yandex_preview(_voice_text(language), preset.get("yandex", "jane"))
                 with open(mp3_path, "wb") as f:
                     f.write(data)
                 with open(mp3_path, "rb") as f:
                     return f.read()
-            voice_name = edge_voice.get("voice", "ru-RU-SvetlanaNeural")
-            rate = edge_voice.get("rate", "+0%")
-            pitch = edge_voice.get("pitch", "+0Hz")
+
+            # 2) Free fallback.
+            edge_cfg = preset.get("edge", {})
+            voice_name = edge_cfg.get("voice", "ru-RU-SvetlanaNeural")
+            rate = edge_cfg.get("rate", "+0%")
+            pitch = edge_cfg.get("pitch", "+0Hz")
             asyncio.run(_edge_save_to_file(_voice_text(language), voice_name, rate, pitch, mp3_path))
             with open(mp3_path, "rb") as f:
                 return f.read()
         except Exception:
-            try:
-                espeak = preset.get("espeak", {"voice": "ru+f2", "speed": 145, "pitch": 50})
-                _run(
-                    [
-                        espeak_bin,
-                        "-v",
-                        espeak["voice"],
-                        "-s",
-                        str(espeak["speed"]),
-                        "-p",
-                        str(espeak["pitch"]),
-                        "-w",
-                        wav_path,
-                        _voice_text(language),
-                    ]
-                )
-                _trim_to_preview(wav_path, mp3_path, duration_sec=8)
-                with open(mp3_path, "rb") as f:
-                    return f.read()
-            except Exception:
-                # Last fallback: short tone so preview button always responds.
-                tone_freq = 220
-                if voice_id in {"alyss", "jane", "oksana"}:
-                    tone_freq = 330
-                _run(
-                    [
-                        ffmpeg,
-                        "-y",
-                        "-f",
-                        "lavfi",
-                        "-i",
-                        f"sine=frequency={tone_freq}:sample_rate=44100,volume=0.08",
-                        "-t",
-                        "4",
-                        "-c:a",
-                        "libmp3lame",
-                        "-b:a",
-                        "128k",
-                        mp3_path,
-                    ]
-                )
-                with open(mp3_path, "rb") as f:
-                    return f.read()
-
-
-def generate_music_preview_mp3(track_id: str, duration_sec: int = 8) -> bytes:
-    ffmpeg = _ffmpeg()
-    with tempfile.TemporaryDirectory(prefix="music-preview-") as tmp:
-        raw_path = os.path.join(tmp, "raw.mp3")
-        mp3_path = os.path.join(tmp, "preview.mp3")
-        try:
-            track_url = MUSIC_TRACKS.get(track_id)
-            if not track_url:
-                raise RuntimeError("Track URL is missing")
-            _download_file(track_url, raw_path)
-            _trim_to_preview(raw_path, mp3_path, duration_sec=duration_sec)
-            with open(mp3_path, "rb") as f:
-                return f.read()
-        except Exception:
-            # Fallback: generated music bed if remote track is unavailable.
+            # 3) Last fallback to local TTS.
+            espeak_cfg = preset.get("espeak", {"voice": "ru+f2", "speed": 145, "pitch": 50})
             _run(
                 [
-                    ffmpeg,
-                    "-y",
-                    "-f",
-                    "lavfi",
-                    "-i",
-                    _music_source(track_id),
-                    "-t",
-                    str(max(4, int(duration_sec))),
-                    "-ar",
-                    "44100",
-                    "-ac",
-                    "2",
-                    "-c:a",
-                    "libmp3lame",
-                    "-b:a",
-                    "128k",
-                    mp3_path,
+                    espeak_bin,
+                    "-v",
+                    espeak_cfg["voice"],
+                    "-s",
+                    str(espeak_cfg["speed"]),
+                    "-p",
+                    str(espeak_cfg["pitch"]),
+                    "-w",
+                    wav_path,
+                    _voice_text(language),
                 ]
             )
+            _trim_to_preview(wav_path, mp3_path, duration_sec=8)
             with open(mp3_path, "rb") as f:
                 return f.read()
+
+
+def generate_music_preview_mp3(track_id: str, duration_sec: int = 10) -> bytes:
+    with tempfile.TemporaryDirectory(prefix="music-preview-") as tmp:
+        mp3_path = os.path.join(tmp, "preview.mp3")
+        _build_generated_music(track_id=track_id, duration_sec=max(4, int(duration_sec)), out_path=mp3_path)
+        with open(mp3_path, "rb") as f:
+            return f.read()

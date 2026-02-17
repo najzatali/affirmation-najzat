@@ -1,40 +1,76 @@
+from __future__ import annotations
+
+import re
+
 SAFE_BANNED = [
-    "cure", "heal", "лечит", "вылечит", "гарантия", "guarantee",
+    "cure",
+    "лечит",
+    "вылечит",
+    "гарантия",
+    "guarantee",
+    "100%",
 ]
 
 DISCLAIMER_RU = "Это вдохновляющие утверждения. Они не являются медицинской рекомендацией."
-DISCLAIMER_EN = "These affirmations are inspirational and not medical advice."
+DISCLAIMER_EN = "These are inspirational affirmations and not medical advice."
+
+NEGATIVE_PATTERNS_RU = [
+    r"\bне\b",
+    r"\bникогда\b",
+    r"\bнет\b",
+]
+NEGATIVE_PATTERNS_EN = [
+    r"\bnot\b",
+    r"\bnever\b",
+    r"\bno\b",
+]
 
 
 def sanitize(text: str) -> str:
-    lowered = text.lower()
-    if any(b in lowered for b in SAFE_BANNED):
+    value = " ".join((text or "").strip().split())
+    if not value:
         return ""
-    return text
+    lowered = value.lower()
+    if any(bad in lowered for bad in SAFE_BANNED):
+        return ""
+    return value
+
+
+def remove_negative_words(text: str, language: str) -> str:
+    value = text
+    patterns = NEGATIVE_PATTERNS_RU if language == "ru" else NEGATIVE_PATTERNS_EN
+    for pattern in patterns:
+        value = re.sub(pattern, "", value, flags=re.IGNORECASE)
+    value = re.sub(r"\s{2,}", " ", value).strip(" ,.;:-")
+    return value
 
 
 def enforce_affirmation_style(text: str, language: str) -> str:
-    value = text.strip()
+    value = sanitize(text)
     if not value:
-        return value
-    value = value.replace("?", "").strip()
+        return ""
+
+    value = value.replace("?", "").strip(" .,!;:")
+    value = remove_negative_words(value, language)
+    if not value:
+        return ""
+
     if language == "ru":
         low = value.lower()
-        if low.startswith("я хочу "):
-            value = "Я выбираю " + value[7:].strip(" ,.-")
-            low = value.lower()
+        if low.startswith("я есть") or low.startswith("я имею"):
+            return " ".join([part for part in value.split(" ") if part]).strip()
         if low.startswith("я "):
-            return "Я " + value[2:].strip(" ,.-")
-        return "Я " + value[0].lower() + value[1:] if len(value) > 1 else "Я " + value.lower()
+            return "Я есть " + value[2:].strip(" ,.;:-")
+        return "Я есть " + value
+
     low = value.lower()
-    if low.startswith("i want "):
-        value = "I choose " + value[7:].strip(" ,.-")
-        low = value.lower()
+    if low.startswith("i am") or low.startswith("i have"):
+        return " ".join([part for part in value.split(" ") if part]).strip()
     if low.startswith("i "):
-        return value
-    return "I " + value[0].lower() + value[1:] if len(value) > 1 else "I " + value.lower()
+        return "I am " + value[2:].strip(" ,.;:-")
+    return "I am " + value
 
 
 def add_disclaimer(items: list[str], language: str) -> list[str]:
-    # Disclaimer is shown in UI, not as part of affirmation lines.
+    # Disclaimer should be rendered by UI as a footnote.
     return items

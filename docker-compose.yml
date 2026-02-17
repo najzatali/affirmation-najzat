@@ -19,6 +19,9 @@ services:
       MINIO_ROOT_PASSWORD: minio123
     volumes:
       - minio-data:/data
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
 
   backend:
     build:
@@ -27,7 +30,7 @@ services:
     env_file:
       - ./backend/.env
     ports:
-      - "8000:8000"
+      - "${BACKEND_PORT:-8000}:8000"
     depends_on:
       - db
       - redis
@@ -51,7 +54,7 @@ services:
     env_file:
       - ./frontend/.env
     ports:
-      - "3000:3000"
+      - "${FRONTEND_PORT:-3000}:3000"
     depends_on:
       - backend
 

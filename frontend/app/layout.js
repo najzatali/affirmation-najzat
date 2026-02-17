@@ -2,8 +2,8 @@ import "./globals.css";
 import { LanguageProvider } from "../components/LanguageContext";
 
 export const metadata = {
-  title: "AIMPACT Academy",
-  description: "Adaptive AI learning platform for individuals and teams",
+  title: "Affirmation Studio",
+  description: "Personal affirmations in text and audio with bilingual UX",
 };
 
 export default function RootLayout({ children }) {

@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import asyncio
 import os
 import shutil
@@ -12,35 +14,35 @@ from config import settings
 
 
 VOICE_PROVIDER_MAP = {
-    "alyss": {
+    "alice": {
         "yandex": "alena",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-6%", "pitch": "+2Hz"},
-        "espeak": {"voice": "ru+f3", "speed": 152, "pitch": 58},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-4%", "pitch": "+1Hz"},
+        "espeak": {"voice": "ru+f3", "speed": 150, "pitch": 58},
     },
     "jane": {
         "yandex": "jane",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+0%", "pitch": "+0Hz"},
-        "espeak": {"voice": "ru+f2", "speed": 145, "pitch": 52},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+2%", "pitch": "+0Hz"},
+        "espeak": {"voice": "ru+f2", "speed": 142, "pitch": 52},
     },
     "oksana": {
         "yandex": "oksana",
-        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+4%", "pitch": "-2Hz"},
-        "espeak": {"voice": "ru+f4", "speed": 138, "pitch": 44},
+        "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "-1%", "pitch": "-2Hz"},
+        "espeak": {"voice": "ru+f4", "speed": 136, "pitch": 44},
     },
     "filipp": {
         "yandex": "filipp",
         "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+0%", "pitch": "+0Hz"},
-        "espeak": {"voice": "ru+m3", "speed": 148, "pitch": 42},
+        "espeak": {"voice": "ru+m3", "speed": 145, "pitch": 42},
     },
     "ermil": {
         "yandex": "ermil",
-        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "-10%", "pitch": "-2Hz"},
-        "espeak": {"voice": "ru+m1", "speed": 136, "pitch": 36},
+        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "-8%", "pitch": "-2Hz"},
+        "espeak": {"voice": "ru+m1", "speed": 138, "pitch": 36},
     },
     "zahar": {
         "yandex": "zahar",
-        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+8%", "pitch": "+2Hz"},
-        "espeak": {"voice": "ru+m5", "speed": 162, "pitch": 50},
+        "edge": {"voice": "ru-RU-DmitryNeural", "rate": "+7%", "pitch": "+2Hz"},
+        "espeak": {"voice": "ru+m5", "speed": 154, "pitch": 48},
     },
 }
 
@@ -60,13 +62,10 @@ def _contains_cyrillic(text: str) -> bool:
     return any("а" <= ch.lower() <= "я" or ch.lower() == "ё" for ch in text)
 
 
-def _mock_tts(_: str) -> bytes:
-    return b""
-
-
 def _voice_map(voice_id: Optional[str]) -> dict:
     if voice_id and voice_id in VOICE_PROVIDER_MAP:
         return VOICE_PROVIDER_MAP[voice_id]
+
     return {
         "yandex": settings.yandex_voice,
         "edge": {"voice": "ru-RU-SvetlanaNeural", "rate": "+0%", "pitch": "+0Hz"},
@@ -77,6 +76,7 @@ def _voice_map(voice_id: Optional[str]) -> dict:
 def _yandex_tts(text: str, voice_id: Optional[str] = None) -> bytes:
     if not settings.yandex_api_key:
         raise RuntimeError("YANDEX_API_KEY is not configured")
+
     mapped_voice = _voice_map(voice_id).get("yandex") or settings.yandex_voice
     headers = {"Authorization": f"Api-Key {settings.yandex_api_key}"}
     data = {
@@ -94,7 +94,7 @@ def _yandex_tts(text: str, voice_id: Optional[str] = None) -> bytes:
 def _salute_tts(text: str, voice_id: Optional[str] = None) -> bytes:
     if not settings.salute_api_key:
         raise RuntimeError("SALUTE_API_KEY is not configured")
-    # Salute voice naming is provider-specific. We keep configured default for reliability.
+
     headers = {"Authorization": f"Bearer {settings.salute_api_key}"}
     payload = {
         "text": text,
@@ -114,15 +114,16 @@ async def _edge_save_to_file(text: str, voice_name: str, rate: str, pitch: str, 
 
 
 def _edge_tts(text: str, voice_id: Optional[str] = None) -> bytes:
-    voice = _voice_map(voice_id).get("edge", {})
-    voice_name = voice.get("voice") or ("ru-RU-SvetlanaNeural" if _contains_cyrillic(text) else "en-US-AriaNeural")
-    rate = voice.get("rate", "+0%")
-    pitch = voice.get("pitch", "+0Hz")
+    cfg = _voice_map(voice_id).get("edge", {})
+    voice_name = cfg.get("voice") or ("ru-RU-SvetlanaNeural" if _contains_cyrillic(text) else "en-US-AriaNeural")
+    rate = cfg.get("rate", "+0%")
+    pitch = cfg.get("pitch", "+0Hz")
+
     with tempfile.TemporaryDirectory(prefix="tts-edge-") as tmp:
         out_path = os.path.join(tmp, "speech.mp3")
         asyncio.run(_edge_save_to_file(text, voice_name, rate, pitch, out_path))
-        with open(out_path, "rb") as f:
-            return f.read()
+        with open(out_path, "rb") as file:
+            return file.read()
 
 
 def _espeak_tts(text: str, voice_id: Optional[str] = None) -> bytes:
@@ -132,9 +133,11 @@ def _espeak_tts(text: str, voice_id: Optional[str] = None) -> bytes:
             profile = {"voice": "ru+f2", "speed": 145, "pitch": 50}
         else:
             profile = {"voice": "en-us+f3", "speed": 150, "pitch": 52}
+
     espeak_bin = _pick_espeak()
     ffmpeg = settings.ffmpeg_path or os.getenv("FFMPEG_PATH", "ffmpeg")
-    with tempfile.TemporaryDirectory(prefix="tts-") as tmp:
+
+    with tempfile.TemporaryDirectory(prefix="tts-espeak-") as tmp:
         wav_path = os.path.join(tmp, "speech.wav")
         mp3_path = os.path.join(tmp, "speech.mp3")
         _run(
@@ -168,8 +171,8 @@ def _espeak_tts(text: str, voice_id: Optional[str] = None) -> bytes:
                 mp3_path,
             ]
         )
-        with open(mp3_path, "rb") as f:
-            return f.read()
+        with open(mp3_path, "rb") as file:
+            return file.read()
 
 
 def _synthesize_by_provider(provider: str, text: str, voice_id: Optional[str]) -> bytes:
@@ -181,7 +184,7 @@ def _synthesize_by_provider(provider: str, text: str, voice_id: Optional[str]) -
         return _edge_tts(text, voice_id=voice_id)
     if provider == "espeak":
         return _espeak_tts(text, voice_id=voice_id)
-    return _mock_tts(text)
+    raise RuntimeError(f"Unsupported TTS provider: {provider}")
 
 
 def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
@@ -192,8 +195,10 @@ def synthesize(text: str, voice_id: Optional[str] = None) -> bytes:
 def synthesize_with_fallback(text: str, voice_id: Optional[str] = None) -> Optional[bytes]:
     if not text.strip():
         return None
+
     provider = settings.tts_provider.lower()
     order = [provider]
+
     if provider == "yandex":
         order.extend(["salute", "edge", "espeak"])
     elif provider == "salute":
@@ -203,7 +208,7 @@ def synthesize_with_fallback(text: str, voice_id: Optional[str] = None) -> Optio
     elif provider == "espeak":
         order.append("espeak")
     else:
-        order.extend(["edge", "espeak"])
+        order.extend(["yandex", "edge", "espeak"])
 
     seen = set()
     for name in order:
@@ -216,4 +221,5 @@ def synthesize_with_fallback(text: str, voice_id: Optional[str] = None) -> Optio
                 return audio
         except Exception:
             continue
+
     return None

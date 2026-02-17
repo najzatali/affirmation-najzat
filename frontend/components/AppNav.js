@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+
 import { useLanguage } from "./LanguageContext";
 import { i18n } from "../lib/i18n";
 import LanguageToggle from "./LanguageToggle";
@@ -14,10 +15,10 @@ export default function AppNav({ title, subtitle }) {
 
   const navItems = [
     { href: "/", label: t.nav.home },
-    { href: "/onboarding", label: t.nav.personalize },
+    { href: "/onboarding", label: t.nav.onboarding },
+    { href: "/record", label: t.nav.record },
     { href: "/library", label: t.nav.library },
-    { href: "/record", label: t.nav.learning },
-    { href: "/billing", label: t.nav.pricing },
+    { href: "/billing", label: t.nav.billing },
   ];
 
   return (
@@ -25,8 +26,8 @@ export default function AppNav({ title, subtitle }) {
       <div className="brand-row">
         <div>
           <BrandLogo />
-          {title && <h1>{title}</h1>}
-          {subtitle && <p className="muted subtitle">{subtitle}</p>}
+          {title ? <h1>{title}</h1> : null}
+          {subtitle ? <p className="subtitle muted">{subtitle}</p> : null}
         </div>
         <LanguageToggle />
       </div>

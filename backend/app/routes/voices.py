@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from fastapi import APIRouter, Query
 from fastapi.responses import Response
 
@@ -6,12 +8,48 @@ from ..services.audio_preview import generate_voice_preview_mp3
 router = APIRouter(prefix="/voices", tags=["voices"])
 
 SYSTEM_VOICES = [
-    {"id": "alyss", "gender": "female", "label_ru": "Алиса (мягкий)", "label_en": "Alyss (soft)"},
-    {"id": "jane", "gender": "female", "label_ru": "Джейн (чистый)", "label_en": "Jane (clear)"},
-    {"id": "oksana", "gender": "female", "label_ru": "Оксана (глубокий)", "label_en": "Oksana (deep)"},
-    {"id": "filipp", "gender": "male", "label_ru": "Филипп (уверенный)", "label_en": "Filipp (confident)"},
-    {"id": "ermil", "gender": "male", "label_ru": "Ермил (спокойный)", "label_en": "Ermil (calm)"},
-    {"id": "zahar", "gender": "male", "label_ru": "Захар (энергичный)", "label_en": "Zahar (energetic)"},
+    {
+        "id": "alice",
+        "gender": "female",
+        "label_ru": "Алиса — мягкий",
+        "label_en": "Alice — soft",
+        "style": "soft",
+    },
+    {
+        "id": "jane",
+        "gender": "female",
+        "label_ru": "Джейн — ясный",
+        "label_en": "Jane — clear",
+        "style": "clear",
+    },
+    {
+        "id": "oksana",
+        "gender": "female",
+        "label_ru": "Оксана — глубокий",
+        "label_en": "Oksana — deep",
+        "style": "deep",
+    },
+    {
+        "id": "filipp",
+        "gender": "male",
+        "label_ru": "Филипп — уверенный",
+        "label_en": "Philip — confident",
+        "style": "confident",
+    },
+    {
+        "id": "ermil",
+        "gender": "male",
+        "label_ru": "Ермил — спокойный",
+        "label_en": "Ermil — calm",
+        "style": "calm",
+    },
+    {
+        "id": "zahar",
+        "gender": "male",
+        "label_ru": "Захар — энергичный",
+        "label_en": "Zahar — energetic",
+        "style": "energetic",
+    },
 ]
 
 

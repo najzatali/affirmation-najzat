@@ -1,5 +1,8 @@
-from pydantic import BaseModel, Field
+from __future__ import annotations
+
 from typing import List, Optional
+
+from pydantic import BaseModel, Field
 
 
 class GoalAnswer(BaseModel):
@@ -20,7 +23,7 @@ class GenerateAffirmationsResponse(BaseModel):
 
 
 class ProjectCreate(BaseModel):
-    title: str
+    title: str = Field(min_length=1, max_length=120)
     language: str = "ru"
 
 
@@ -28,6 +31,12 @@ class ProjectOut(BaseModel):
     id: str
     title: str
     language: str
+
+
+class VoiceSampleOut(BaseModel):
+    id: str
+    s3_key: str
+    consent: bool
 
 
 class JobCreate(BaseModel):
@@ -45,35 +54,6 @@ class JobOut(BaseModel):
     status: str
     result_url: Optional[str] = None
     error: Optional[str] = None
-
-
-class VoiceSampleOut(BaseModel):
-    id: str
-    s3_key: str
-    consent: bool
-
-
-class PlanOut(BaseModel):
-    code: str
-    price_month_usd: int
-    max_generations: int
-    max_text_chars: int
-
-
-class SubscriptionOut(BaseModel):
-    plan: str
-    status: str
-    provider: str
-
-
-class CheckoutRequest(BaseModel):
-    plan_code: str
-    success_url: str = "http://localhost:3000/billing/success"
-    cancel_url: str = "http://localhost:3000/billing/cancel"
-
-
-class CheckoutOut(BaseModel):
-    checkout_url: str
 
 
 class BillingPackageOut(BaseModel):
@@ -97,88 +77,3 @@ class PurchaseOut(BaseModel):
     status: str
     consumed: bool
     checkout_url: Optional[str] = None
-
-
-class TrainingPlanOut(BaseModel):
-    code: str
-    title: str
-    max_seats: int
-    price_rub: int
-
-
-class TrainingOrderCreate(BaseModel):
-    plan_code: str
-    seats: int = 1
-    company_name: Optional[str] = None
-    success_url: str = "http://localhost:3000/billing/success"
-    cancel_url: str = "http://localhost:3000/billing/cancel"
-
-
-class TrainingOrderOut(BaseModel):
-    id: str
-    plan_code: str
-    seats: int
-    company_name: Optional[str] = None
-    price_rub: int
-    status: str
-    checkout_url: Optional[str] = None
-
-
-class CoachProfile(BaseModel):
-    learner_type: str = "individual"
-    age_group: str = "young"
-    industry: str = "general"
-    role: str = "specialist"
-    level: str = "beginner"
-    format: str = "hybrid"
-    goals: List[str] = []
-
-
-class LessonCoachRequest(BaseModel):
-    language: str = "ru"
-    module_id: str
-    module_title: str
-    module_summary: str = ""
-    practice_note: str = ""
-    completed_tasks: List[str] = []
-    visited_segments: int = 0
-    total_segments: int = 0
-    profile: CoachProfile
-
-
-class LessonCoachResponse(BaseModel):
-    next_step: str
-    checkpoint: str
-    safety_note: str
-    company_step: Optional[str] = None
-    company_kpi: Optional[str] = None
-    provider: str
-    fallback: bool = False
-
-
-class ScreenshotReviewResponse(BaseModel):
-    passed: bool
-    score: int
-    summary: str
-    found: List[str]
-    missing: List[str]
-    next_action: str
-    provider: str
-    fallback: bool = False
-
-
-class LessonHelpRequest(BaseModel):
-    language: str = "ru"
-    module_title: str
-    step_title: str = ""
-    user_question: str
-    user_attempt: str = ""
-    profile: CoachProfile
-
-
-class LessonHelpResponse(BaseModel):
-    answer: str
-    what_wrong: str
-    how_fix: str
-    provider: str
-    fallback: bool = False

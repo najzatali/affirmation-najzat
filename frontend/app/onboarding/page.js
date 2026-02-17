@@ -1,365 +1,358 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+
 import AppNav from "../../components/AppNav";
 import { useLanguage } from "../../components/LanguageContext";
+import { apiPost } from "../../lib/api";
 import { i18n } from "../../lib/i18n";
-import {
-  learningAgeGroups,
-  learningFormats,
-  learningGoals,
-  learningIndustries,
-  learningRoles,
-} from "../../lib/learningCatalog";
-import { diagnosticInterview, evaluateDiagnostic } from "../../lib/diagnosticInterview";
-import { buildAdaptivePath, summarizePath } from "../../lib/personalization";
-import { resetLearningState, savePath, saveProfile } from "../../lib/profileStorage";
-import { formatRub, getTierForSeats } from "../../lib/pricing";
+import { areasCatalog, onboardingQuestionBlocks, questionBlockOrder } from "../../lib/onboardingQuestions";
+import { pushHistory, saveSession } from "../../lib/studioStorage";
 
-const DEFAULT_PROFILE = {
-  learnerType: "individual",
-  name: "",
-  ageGroup: "young",
-  industry: "general",
-  role: "specialist",
-  level: "beginner",
-  format: "hybrid",
-  goals: ["productivity", "quality"],
-  seats: 5,
-};
+function sessionTitle(lang) {
+  const now = new Date();
+  return lang === "ru" ? `Сессия ${now.toLocaleString("ru-RU")}` : `Session ${now.toLocaleString("en-US")}`;
+}
 
 export default function OnboardingPage() {
+  const router = useRouter();
   const { lang } = useLanguage();
   const t = i18n[lang];
-  const locale = lang === "ru" ? "ru-RU" : "en-US";
 
-  const [profile, setProfile] = useState(DEFAULT_PROFILE);
-  const [goalError, setGoalError] = useState("");
-  const [stage, setStage] = useState("profile");
-  const [questionIndex, setQuestionIndex] = useState(0);
+  const areas = areasCatalog[lang];
+  const blocks = onboardingQuestionBlocks[lang];
+
+  const [selectedAreas, setSelectedAreas] = useState(["health"]);
+  const [started, setStarted] = useState(false);
   const [answers, setAnswers] = useState({});
-  const [coachFeedback, setCoachFeedback] = useState("");
-  const [diagnostic, setDiagnostic] = useState(null);
-  const [path, setPath] = useState([]);
-  const [stats, setStats] = useState({ totalDurationMin: 0, totalXp: 0 });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [error, setError] = useState("");
 
-  const questions = useMemo(() => diagnosticInterview[lang] || diagnosticInterview.ru, [lang]);
-  const currentQuestion = questions[questionIndex] || null;
+  const [busy, setBusy] = useState(false);
+  const [affirmations, setAffirmations] = useState([]);
+  const [projectId, setProjectId] = useState("");
+  const [editorText, setEditorText] = useState("");
 
-  const selectedTier = useMemo(() => getTierForSeats(profile.seats), [profile.seats]);
-  const diagnosticProgress = questions.length > 0 ? Math.round((questionIndex / questions.length) * 100) : 0;
+  const questionPlan = useMemo(() => {
+    const plan = [];
+    for (const areaId of selectedAreas) {
+      const areaTitle = areas.find((item) => item.id === areaId)?.title || areaId;
+      for (const block of questionBlockOrder) {
+        for (const question of blocks[block] || []) {
+          plan.push({
+            areaId,
+            areaTitle,
+            key: question.key,
+            type: question.type,
+            min: question.min,
+            max: question.max,
+            suggestions: question.suggestions || [],
+            text: question.text.replace("{area}", areaTitle.toLowerCase()),
+          });
+        }
+      }
+    }
+    return plan;
+  }, [areas, blocks, selectedAreas]);
 
-  function updateField(field, value) {
-    setProfile((prev) => ({ ...prev, [field]: value }));
+  const current = questionPlan[currentIndex] || null;
+  const progress = questionPlan.length > 0 ? Math.round(((currentIndex + 1) / questionPlan.length) * 100) : 0;
+
+  function answerKey(question) {
+    return `${question.areaId}:${question.key}`;
   }
 
-  function toggleGoal(goalId) {
-    setGoalError("");
-    setProfile((prev) => {
-      if (prev.goals.includes(goalId)) {
-        return { ...prev, goals: prev.goals.filter((item) => item !== goalId) };
+  function updateAnswer(question, value) {
+    setAnswers((prev) => ({ ...prev, [answerKey(question)]: String(value || "") }));
+  }
+
+  function toggleArea(areaId) {
+    setError("");
+    setSelectedAreas((prev) => {
+      if (prev.includes(areaId)) {
+        return prev.filter((item) => item !== areaId);
       }
-      if (prev.goals.length >= 3) {
-        setGoalError(t.onboarding.goalLimit);
+      if (prev.length >= 3) {
+        setError(t.onboarding.validationAreaLimit);
         return prev;
       }
-      return { ...prev, goals: [...prev.goals, goalId] };
+      return [...prev, areaId];
     });
   }
 
-  function startDiagnostic() {
-    setGoalError("");
-    setStage("diagnostic");
-    setQuestionIndex(0);
-    setAnswers({});
-    setCoachFeedback("");
-    setDiagnostic(null);
-    setPath([]);
+  function startFlow() {
+    if (selectedAreas.length === 0) {
+      setError(t.onboarding.validationAreas);
+      return;
+    }
+    setError("");
+    setStarted(true);
+    setCurrentIndex(0);
+    setAffirmations([]);
+    setEditorText("");
   }
 
-  function selectAnswer(option) {
-    if (!currentQuestion) return;
-    setGoalError("");
-    setAnswers((prev) => ({ ...prev, [currentQuestion.id]: option.value }));
-    setCoachFeedback(option.coach);
+  function goNext() {
+    if (!current) return;
+
+    const value = (answers[answerKey(current)] || "").trim();
+    if (!value) {
+      setError(t.onboarding.validationAnswer);
+      return;
+    }
+
+    setError("");
+    setCurrentIndex((prev) => Math.min(prev + 1, questionPlan.length - 1));
   }
 
-  function finishDiagnostic() {
-    const report = evaluateDiagnostic(lang, answers);
-    const prepared = {
-      ...profile,
-      level: report.levelId,
-      diagnosticScore: report.scorePercent,
-      diagnosticSummary: report.summary,
-      recommendedStartModuleId: report.startModuleId,
-      seats: Math.max(1, Number(profile.seats || 1)),
-      generatedAt: new Date().toISOString(),
-    };
+  function goBack() {
+    setError("");
+    setCurrentIndex((prev) => Math.max(0, prev - 1));
+  }
 
-    const adaptivePath = buildAdaptivePath(prepared, {
-      maxModules: prepared.learnerType === "company" ? 16 : 14,
+  async function generateAffirmations() {
+    setError("");
+
+    for (const item of questionPlan) {
+      const value = (answers[answerKey(item)] || "").trim();
+      if (!value) {
+        setError(t.onboarding.validationAnswer);
+        return;
+      }
+    }
+
+    setBusy(true);
+    try {
+      const project = await apiPost("/api/projects", {
+        title: sessionTitle(lang),
+        language: lang,
+      });
+
+      const goals = questionPlan.map((item) => ({
+        area: item.areaId,
+        key: item.key,
+        prompt: item.text,
+        answer: String(answers[answerKey(item)] || "").trim(),
+      }));
+
+      const generated = await apiPost("/api/affirmations/generate", {
+        language: lang,
+        tone: "calm",
+        goals,
+      });
+
+      const lines = Array.isArray(generated.affirmations) ? generated.affirmations : [];
+      setProjectId(project.id);
+      setAffirmations(lines);
+      setEditorText(lines.join("\n"));
+
+      saveSession({
+        projectId: project.id,
+        language: lang,
+        areas: selectedAreas,
+        goals,
+        affirmations: lines,
+        createdAt: new Date().toISOString(),
+      });
+
+      pushHistory({
+        id: `${Date.now()}`,
+        createdAt: new Date().toISOString(),
+        areas: selectedAreas,
+        status: "text_ready",
+        durationSec: null,
+        language: lang,
+        projectId: project.id,
+        affirmations: lines,
+      });
+    } catch (e) {
+      setError(String(e?.message || t.common.errorDefault));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function continueToAudio() {
+    const lines = editorText
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean);
+
+    if (lines.length === 0) {
+      setError(t.onboarding.validationAnswer);
+      return;
+    }
+
+    saveSession({
+      projectId,
+      language: lang,
+      areas: selectedAreas,
+      goals: questionPlan.map((item) => ({
+        area: item.areaId,
+        key: item.key,
+        prompt: item.text,
+        answer: String(answers[answerKey(item)] || "").trim(),
+      })),
+      affirmations: lines,
+      createdAt: new Date().toISOString(),
     });
 
-    const pathStats = summarizePath(adaptivePath);
-
-    saveProfile(prepared);
-    savePath(adaptivePath);
-    resetLearningState();
-
-    setDiagnostic(report);
-    setPath(adaptivePath);
-    setStats(pathStats);
-    setStage("result");
-  }
-
-  function nextQuestion() {
-    if (!currentQuestion) return;
-    const answer = answers[currentQuestion.id];
-    if (answer === undefined || answer === null) {
-      setGoalError(t.onboarding.answerRequired);
-      return;
-    }
-    setGoalError("");
-
-    if (questionIndex >= questions.length - 1) {
-      finishDiagnostic();
-      return;
-    }
-
-    setQuestionIndex((prev) => prev + 1);
-    setCoachFeedback("");
+    router.push("/record");
   }
 
   return (
     <main className="page-shell">
       <AppNav title={t.onboarding.title} subtitle={t.onboarding.subtitle} />
 
-      {stage === "profile" && (
-        <section className="card">
-          <div className="form-grid">
-            <div>
-              <label>{t.onboarding.learnerType}</label>
-              <div className="option-grid">
-                <button
-                  type="button"
-                  className={profile.learnerType === "individual" ? "option-card active" : "option-card"}
-                  onClick={() => updateField("learnerType", "individual")}
-                >
-                  {t.onboarding.individual}
-                </button>
-                <button
-                  type="button"
-                  className={profile.learnerType === "company" ? "option-card active" : "option-card"}
-                  onClick={() => updateField("learnerType", "company")}
-                >
-                  {t.onboarding.company}
-                </button>
-              </div>
-            </div>
-
-            <div>
-              <label>{t.onboarding.name}</label>
-              <input
-                className="input"
-                value={profile.name}
-                onChange={(event) => updateField("name", event.target.value)}
-                placeholder={lang === "ru" ? "Например, Nova Sales" : "For example, Nova Sales"}
-              />
-            </div>
-
-            <div>
-              <label>{t.onboarding.ageGroup}</label>
-              <select className="select" value={profile.ageGroup} onChange={(event) => updateField("ageGroup", event.target.value)}>
-                {learningAgeGroups.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label[lang]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label>{t.onboarding.industry}</label>
-              <select className="select" value={profile.industry} onChange={(event) => updateField("industry", event.target.value)}>
-                {learningIndustries.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label[lang]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label>{t.onboarding.role}</label>
-              <select className="select" value={profile.role} onChange={(event) => updateField("role", event.target.value)}>
-                {learningRoles.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label[lang]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div>
-              <label>{t.onboarding.format}</label>
-              <select className="select" value={profile.format} onChange={(event) => updateField("format", event.target.value)}>
-                {learningFormats.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.label[lang]}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            {profile.learnerType === "company" && (
-              <div>
-                <label>{t.onboarding.seats}</label>
-                <input
-                  className="input"
-                  type="number"
-                  min={1}
-                  max={100}
-                  value={profile.seats}
-                  onChange={(event) => updateField("seats", Number(event.target.value || 1))}
-                />
-                <p className="footnote">{t.onboarding.seatsHint}</p>
-                <p className="muted">
-                  {selectedTier.label[lang]}: <strong>{formatRub(selectedTier.priceRub, locale)}</strong>
-                </p>
-              </div>
-            )}
-
-            <div>
-              <label>{t.onboarding.goals}</label>
-              <div className="pill-row">
-                {learningGoals.map((goal) => {
-                  const active = profile.goals.includes(goal.id);
-                  return (
-                    <button
-                      type="button"
-                      key={goal.id}
-                      className={active ? "area-pill active" : "area-pill"}
-                      onClick={() => toggleGoal(goal.id)}
-                    >
-                      {goal.label[lang]}
-                    </button>
-                  );
-                })}
-              </div>
-              {goalError && <p className="error">{goalError}</p>}
-            </div>
-          </div>
-
-          <div className="hero-actions" style={{ marginTop: 18 }}>
-            <button type="button" className="btn" onClick={startDiagnostic}>
-              {t.onboarding.startDiagnostic}
-            </button>
-          </div>
-        </section>
-      )}
-
-      {stage === "diagnostic" && currentQuestion && (
+      {!started && (
         <section className="card glow">
-          <h2>{t.onboarding.diagnosticTitle}</h2>
-          <p className="muted">{t.onboarding.diagnosticHint}</p>
+          <h2>{t.onboarding.chooseAreas}</h2>
+          <p className="muted">{t.onboarding.areasHint}</p>
 
-          <div className="progress-line" style={{ marginBottom: 10 }}>
-            <div className="progress-bar" style={{ width: `${diagnosticProgress}%` }} />
-          </div>
-
-          <p className="muted" style={{ marginTop: 0 }}>
-            {t.onboarding.question} {questionIndex + 1} {t.onboarding.of} {questions.length}
-          </p>
-
-          <h3>{currentQuestion.prompt}</h3>
-
-          <div className="option-grid">
-            {currentQuestion.options.map((option) => {
-              const active = answers[currentQuestion.id] === option.value;
+          <div className="pill-row" style={{ marginTop: 10 }}>
+            {areas.map((area) => {
+              const active = selectedAreas.includes(area.id);
               return (
                 <button
-                  key={`${currentQuestion.id}-${option.value}`}
+                  key={area.id}
                   type="button"
-                  className={active ? "option-card active" : "option-card"}
-                  onClick={() => selectAnswer(option)}
+                  className={active ? "area-pill active" : "area-pill"}
+                  onClick={() => toggleArea(area.id)}
                 >
-                  {option.label}
+                  {area.title}
                 </button>
               );
             })}
           </div>
 
-          {coachFeedback && (
-            <p className="muted" style={{ marginTop: 12 }}>
-              <strong>{t.onboarding.coachFeedback}:</strong> {coachFeedback}
-            </p>
-          )}
-
-          {goalError && <p className="error">{goalError}</p>}
-
-          <div className="hero-actions" style={{ marginTop: 14 }}>
-            <button type="button" className="btn" onClick={nextQuestion}>
-              {questionIndex >= questions.length - 1 ? t.onboarding.finishDiagnostic : t.onboarding.nextQuestion}
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={() => setStage("profile")}>
-              {t.onboarding.backToProfile}
-            </button>
-          </div>
-        </section>
-      )}
-
-      {stage === "result" && path.length > 0 && (
-        <section className="card glow">
-          <h2>{t.onboarding.ready}</h2>
-          <p className="muted">{diagnostic?.summary}</p>
-
-          <div className="stats-strip">
-            <article className="stat-chip">
-              <strong>{profile.name || t.common.noData}</strong>
-              <p className="muted">{t.onboarding.profile}</p>
-            </article>
-            <article className="stat-chip">
-              <strong>{diagnostic?.scorePercent}%</strong>
-              <p className="muted">{t.onboarding.scoreLabel}</p>
-            </article>
-            <article className="stat-chip">
-              <strong>{diagnostic?.levelLabel}</strong>
-              <p className="muted">{t.onboarding.suggestedLevel}</p>
-            </article>
-            <article className="stat-chip">
-              <strong>
-                {stats.totalDurationMin} {t.common.min}
-              </strong>
-              <p className="muted">{t.onboarding.totalTime}</p>
-            </article>
-            <article className="stat-chip">
-              <strong>{stats.totalXp} XP</strong>
-              <p className="muted">{t.onboarding.totalXp}</p>
-            </article>
-          </div>
-
-          <h3 style={{ marginTop: 14 }}>{t.onboarding.buildInstructionsTitle}</h3>
-          <ol>
-            <li>{lang === "ru" ? "Иди по базовому порядку: карта AI -> промпт по частям -> итерации -> безопасность данных." : "Follow foundation order: AI map -> prompt structure -> iteration -> data safety."}</li>
-            <li>{lang === "ru" ? "После каждого урока сразу применяй шаблон промпта на своей реальной задаче." : "After each lesson, run the module prompt template on your real task immediately."}</li>
-            <li>{lang === "ru" ? "Формат урока: короткий шаг -> твой ответ -> проверка -> следующий шаг, затем практическая заметка." : "Lesson format: short step -> your answer -> check -> next step, then practice note."}</li>
-          </ol>
+          <p className="footnote">
+            {t.onboarding.selectedAreas}: <strong>{selectedAreas.length}</strong>
+          </p>
 
           <div className="hero-actions">
-            <Link className="btn" href="/record">
-              {t.onboarding.openLearning}
-            </Link>
-            <Link className="btn btn-ghost" href="/library">
-              {t.onboarding.openPath}
-            </Link>
+            <button type="button" className="btn" onClick={startFlow}>
+              {t.common.next}
+            </button>
           </div>
         </section>
       )}
 
-      <p className="footnote">
-        <Link href="/">{t.common.backHome}</Link>
-      </p>
+      {started && current && affirmations.length === 0 && (
+        <section className="card">
+          <div className="stepper">
+            {selectedAreas.map((areaId) => {
+              const title = areas.find((a) => a.id === areaId)?.title || areaId;
+              return (
+                <span key={areaId} className="step-chip active">
+                  {title}
+                </span>
+              );
+            })}
+          </div>
+
+          <div className="progress-line">
+            <div className="progress-bar" style={{ width: `${progress}%` }} />
+          </div>
+
+          <p className="muted" style={{ marginTop: 8 }}>
+            {t.onboarding.questionStep} {currentIndex + 1} {t.onboarding.of} {questionPlan.length}
+          </p>
+
+          <article className="qa-card">
+            <h3>{current.areaTitle}</h3>
+            <p>{current.text}</p>
+
+            {current.type === "scale" ? (
+              <div className="pill-row" style={{ marginTop: 10 }}>
+                {Array.from({ length: 10 }).map((_, index) => {
+                  const value = String(index + 1);
+                  const active = (answers[answerKey(current)] || "") === value;
+                  return (
+                    <button
+                      type="button"
+                      key={value}
+                      className={active ? "area-pill active" : "area-pill"}
+                      onClick={() => updateAnswer(current, value)}
+                    >
+                      {value}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <>
+                <textarea
+                  className="textarea"
+                  value={answers[answerKey(current)] || ""}
+                  onChange={(event) => updateAnswer(current, event.target.value)}
+                />
+
+                <p className="footnote">{t.onboarding.suggestions}</p>
+                <div className="suggestion-row">
+                  {current.suggestions.map((item) => (
+                    <button
+                      type="button"
+                      key={item}
+                      className="suggestion-chip"
+                      onClick={() => updateAnswer(current, item)}
+                    >
+                      {item}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+          </article>
+
+          <div className="hero-actions">
+            <button type="button" className="btn-ghost" disabled={currentIndex === 0} onClick={goBack}>
+              {t.common.back}
+            </button>
+
+            {currentIndex < questionPlan.length - 1 ? (
+              <button type="button" className="btn" onClick={goNext}>
+                {t.common.next}
+              </button>
+            ) : (
+              <button type="button" className="btn-secondary" onClick={generateAffirmations} disabled={busy}>
+                {busy ? t.onboarding.generating : t.onboarding.generate}
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+
+      {affirmations.length > 0 && (
+        <section className="card glow">
+          <h2>{t.onboarding.generatedTitle}</h2>
+          <p className="muted">{t.onboarding.generatedHint}</p>
+
+          <div className="result-box">
+            <textarea className="textarea" value={editorText} onChange={(event) => setEditorText(event.target.value)} />
+          </div>
+
+          <div className="hero-actions">
+            <button type="button" className="btn" onClick={continueToAudio}>
+              {t.onboarding.continueToAudio}
+            </button>
+            <button type="button" className="btn-ghost" onClick={generateAffirmations} disabled={busy}>
+              {busy ? t.onboarding.generating : t.onboarding.regenerate}
+            </button>
+          </div>
+
+          <h3 style={{ marginTop: 14 }}>{t.onboarding.helperTitle}</h3>
+          <ul className="check-list">
+            {t.onboarding.helper.map((item) => (
+              <li key={item}>{item}</li>
+            ))}
+          </ul>
+
+          <p className="footnote">{t.onboarding.aiFootnote}</p>
+        </section>
+      )}
+
+      {error ? <p className="error">{error}</p> : null}
     </main>
   );
 }

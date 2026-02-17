@@ -1,10 +1,11 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
 from .core.config import settings
 from .db import Base, engine
-from .storage.s3 import ensure_bucket
-from .routes import health, projects, affirmations, voice, jobs, music, auth, billing, webhooks, privacy, limits, voices, coach
+from .routes import affirmations, auth, billing, health, jobs, limits, music, privacy, projects, voice, voices, webhooks
 from .startup_migrations import run_lightweight_migrations
+from .storage.s3 import ensure_bucket
 
 app = FastAPI(title=settings.app_name)
 
@@ -16,11 +17,13 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
 @app.on_event("startup")
 def on_startup():
     Base.metadata.create_all(bind=engine)
     run_lightweight_migrations()
     ensure_bucket()
+
 
 app.include_router(health.router, prefix="/api")
 app.include_router(auth.router, prefix="/api")
@@ -34,4 +37,3 @@ app.include_router(billing.router, prefix="/api")
 app.include_router(webhooks.router, prefix="/api")
 app.include_router(privacy.router, prefix="/api")
 app.include_router(limits.router, prefix="/api")
-app.include_router(coach.router, prefix="/api")

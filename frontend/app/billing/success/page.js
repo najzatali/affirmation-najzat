@@ -1,26 +1,26 @@
 "use client";
 
 import Link from "next/link";
+
 import AppNav from "../../../components/AppNav";
 import { useLanguage } from "../../../components/LanguageContext";
-import { i18n } from "../../../lib/i18n";
 
 export default function BillingSuccessPage() {
   const { lang } = useLanguage();
-  const t = i18n[lang];
 
   return (
     <main className="page-shell">
-      <AppNav title={t.pricing.successTitle} subtitle={t.pricing.successText} />
+      <AppNav
+        title={lang === "ru" ? "Оплата подтверждена" : "Payment confirmed"}
+        subtitle={lang === "ru" ? "Пакет активирован. Можно возвращаться к генерации аудио." : "Your package is active. You can continue with audio generation."}
+      />
       <section className="card glow">
-        <h2>{t.pricing.successTitle}</h2>
-        <p className="muted">{t.pricing.successText}</p>
         <div className="hero-actions">
-          <Link className="btn" href="/onboarding">
-            {t.nav.personalize}
+          <Link className="btn" href="/record">
+            {lang === "ru" ? "Перейти к аудио" : "Go to audio"}
           </Link>
-          <Link className="btn btn-ghost" href="/billing">
-            {t.nav.pricing}
+          <Link className="btn-ghost" href="/billing">
+            {lang === "ru" ? "К тарифам" : "Back to plans"}
           </Link>
         </div>
       </section>
