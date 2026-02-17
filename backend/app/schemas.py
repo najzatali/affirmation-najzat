@@ -15,6 +15,7 @@ class GoalAnswer(BaseModel):
 class GenerateAffirmationsRequest(BaseModel):
     language: str = "ru"
     tone: str = "calm"
+    user_name: Optional[str] = None
     goals: List[GoalAnswer]
 
 

@@ -7,12 +7,15 @@ import AppNav from "../../components/AppNav";
 import { useLanguage } from "../../components/LanguageContext";
 import { apiPost } from "../../lib/api";
 import { i18n } from "../../lib/i18n";
-import { areasCatalog, onboardingQuestionBlocks, questionBlockOrder } from "../../lib/onboardingQuestions";
+import { areasCatalog, onboardingQuestionBlocks } from "../../lib/onboardingQuestions";
 import { pushHistory, saveSession } from "../../lib/studioStorage";
 
-function sessionTitle(lang) {
+function sessionTitle(lang, name) {
   const now = new Date();
-  return lang === "ru" ? `Сессия ${now.toLocaleString("ru-RU")}` : `Session ${now.toLocaleString("en-US")}`;
+  if (lang === "ru") {
+    return `Сессия ${name} - ${now.toLocaleString("ru-RU")}`;
+  }
+  return `Session ${name} - ${now.toLocaleString("en-US")}`;
 }
 
 export default function OnboardingPage() {
@@ -20,9 +23,10 @@ export default function OnboardingPage() {
   const { lang } = useLanguage();
   const t = i18n[lang];
 
-  const areas = areasCatalog[lang];
-  const blocks = onboardingQuestionBlocks[lang];
+  const areas = areasCatalog[lang] || [];
+  const blocks = onboardingQuestionBlocks[lang] || { perArea: [], global: [] };
 
+  const [userName, setUserName] = useState("");
   const [selectedAreas, setSelectedAreas] = useState(["health"]);
   const [started, setStarted] = useState(false);
   const [answers, setAnswers] = useState({});
@@ -36,35 +40,38 @@ export default function OnboardingPage() {
 
   const questionPlan = useMemo(() => {
     const plan = [];
+
     for (const areaId of selectedAreas) {
       const areaTitle = areas.find((item) => item.id === areaId)?.title || areaId;
-      for (const block of questionBlockOrder) {
-        for (const question of blocks[block] || []) {
-          plan.push({
-            areaId,
-            areaTitle,
-            key: question.key,
-            type: question.type,
-            min: question.min,
-            max: question.max,
-            suggestions: question.suggestions || [],
-            text: question.text.replace("{area}", areaTitle.toLowerCase()),
-          });
-        }
+      for (const question of blocks.perArea || []) {
+        plan.push({
+          ...question,
+          areaId,
+          areaTitle,
+          questionId: `${areaId}:${question.key}`,
+          text: question.text.replace("{area}", areaTitle.toLowerCase()),
+        });
       }
     }
+
+    for (const question of blocks.global || []) {
+      plan.push({
+        ...question,
+        areaId: "global",
+        areaTitle: lang === "ru" ? "Общий контекст" : "Global context",
+        questionId: `global:${question.key}`,
+        text: question.text,
+      });
+    }
+
     return plan;
-  }, [areas, blocks, selectedAreas]);
+  }, [areas, blocks.global, blocks.perArea, lang, selectedAreas]);
 
   const current = questionPlan[currentIndex] || null;
   const progress = questionPlan.length > 0 ? Math.round(((currentIndex + 1) / questionPlan.length) * 100) : 0;
 
-  function answerKey(question) {
-    return `${question.areaId}:${question.key}`;
-  }
-
-  function updateAnswer(question, value) {
-    setAnswers((prev) => ({ ...prev, [answerKey(question)]: String(value || "") }));
+  function updateAnswer(questionId, value) {
+    setAnswers((prev) => ({ ...prev, [questionId]: String(value || "") }));
   }
 
   function toggleArea(areaId) {
@@ -82,10 +89,16 @@ export default function OnboardingPage() {
   }
 
   function startFlow() {
+    if (!userName.trim()) {
+      setError(lang === "ru" ? "Укажи имя" : "Please enter your name");
+      return;
+    }
+
     if (selectedAreas.length === 0) {
       setError(t.onboarding.validationAreas);
       return;
     }
+
     setError("");
     setStarted(true);
     setCurrentIndex(0);
@@ -96,7 +109,7 @@ export default function OnboardingPage() {
   function goNext() {
     if (!current) return;
 
-    const value = (answers[answerKey(current)] || "").trim();
+    const value = (answers[current.questionId] || "").trim();
     if (!value) {
       setError(t.onboarding.validationAnswer);
       return;
@@ -111,11 +124,47 @@ export default function OnboardingPage() {
     setCurrentIndex((prev) => Math.max(0, prev - 1));
   }
 
+  function buildGoalsPayload() {
+    const globalQuestions = (blocks.global || []).map((item) => ({
+      ...item,
+      answer: String(answers[`global:${item.key}`] || "").trim(),
+    }));
+
+    const goals = [];
+
+    for (const areaId of selectedAreas) {
+      const areaQuestions = (blocks.perArea || []).map((item) => ({
+        ...item,
+        answer: String(answers[`${areaId}:${item.key}`] || "").trim(),
+      }));
+
+      for (const q of areaQuestions) {
+        goals.push({
+          area: areaId,
+          key: q.key,
+          prompt: q.text,
+          answer: q.answer,
+        });
+      }
+
+      for (const q of globalQuestions) {
+        goals.push({
+          area: areaId,
+          key: q.key,
+          prompt: q.text,
+          answer: q.answer,
+        });
+      }
+    }
+
+    return goals;
+  }
+
   async function generateAffirmations() {
     setError("");
 
     for (const item of questionPlan) {
-      const value = (answers[answerKey(item)] || "").trim();
+      const value = (answers[item.questionId] || "").trim();
       if (!value) {
         setError(t.onboarding.validationAnswer);
         return;
@@ -125,20 +174,16 @@ export default function OnboardingPage() {
     setBusy(true);
     try {
       const project = await apiPost("/api/projects", {
-        title: sessionTitle(lang),
+        title: sessionTitle(lang, userName.trim()),
         language: lang,
       });
 
-      const goals = questionPlan.map((item) => ({
-        area: item.areaId,
-        key: item.key,
-        prompt: item.text,
-        answer: String(answers[answerKey(item)] || "").trim(),
-      }));
+      const goals = buildGoalsPayload();
 
       const generated = await apiPost("/api/affirmations/generate", {
         language: lang,
         tone: "calm",
+        user_name: userName.trim(),
         goals,
       });
 
@@ -149,6 +194,7 @@ export default function OnboardingPage() {
 
       saveSession({
         projectId: project.id,
+        userName: userName.trim(),
         language: lang,
         areas: selectedAreas,
         goals,
@@ -159,6 +205,7 @@ export default function OnboardingPage() {
       pushHistory({
         id: `${Date.now()}`,
         createdAt: new Date().toISOString(),
+        userName: userName.trim(),
         areas: selectedAreas,
         status: "text_ready",
         durationSec: null,
@@ -186,14 +233,10 @@ export default function OnboardingPage() {
 
     saveSession({
       projectId,
+      userName: userName.trim(),
       language: lang,
       areas: selectedAreas,
-      goals: questionPlan.map((item) => ({
-        area: item.areaId,
-        key: item.key,
-        prompt: item.text,
-        answer: String(answers[answerKey(item)] || "").trim(),
-      })),
+      goals: buildGoalsPayload(),
       affirmations: lines,
       createdAt: new Date().toISOString(),
     });
@@ -207,7 +250,15 @@ export default function OnboardingPage() {
 
       {!started && (
         <section className="card glow">
-          <h2>{t.onboarding.chooseAreas}</h2>
+          <h2>{lang === "ru" ? "1) Как тебя зовут?" : "1) What is your name?"}</h2>
+          <input
+            className="input"
+            placeholder={lang === "ru" ? "Например: Айзат" : "For example: Ajzat"}
+            value={userName}
+            onChange={(event) => setUserName(event.target.value)}
+          />
+
+          <h2 style={{ marginTop: 16 }}>{t.onboarding.chooseAreas}</h2>
           <p className="muted">{t.onboarding.areasHint}</p>
 
           <div className="pill-row" style={{ marginTop: 10 }}>
@@ -232,7 +283,7 @@ export default function OnboardingPage() {
 
           <div className="hero-actions">
             <button type="button" className="btn" onClick={startFlow}>
-              {t.common.next}
+              {lang === "ru" ? "Начать короткий онбординг" : "Start quick onboarding"}
             </button>
           </div>
         </section>
@@ -240,22 +291,12 @@ export default function OnboardingPage() {
 
       {started && current && affirmations.length === 0 && (
         <section className="card">
-          <div className="stepper">
-            {selectedAreas.map((areaId) => {
-              const title = areas.find((a) => a.id === areaId)?.title || areaId;
-              return (
-                <span key={areaId} className="step-chip active">
-                  {title}
-                </span>
-              );
-            })}
-          </div>
-
           <div className="progress-line">
             <div className="progress-bar" style={{ width: `${progress}%` }} />
           </div>
 
           <p className="muted" style={{ marginTop: 8 }}>
+            {lang === "ru" ? `${userName}, ` : `${userName}, `}
             {t.onboarding.questionStep} {currentIndex + 1} {t.onboarding.of} {questionPlan.length}
           </p>
 
@@ -267,13 +308,13 @@ export default function OnboardingPage() {
               <div className="pill-row" style={{ marginTop: 10 }}>
                 {Array.from({ length: 10 }).map((_, index) => {
                   const value = String(index + 1);
-                  const active = (answers[answerKey(current)] || "") === value;
+                  const active = (answers[current.questionId] || "") === value;
                   return (
                     <button
                       type="button"
                       key={value}
                       className={active ? "area-pill active" : "area-pill"}
-                      onClick={() => updateAnswer(current, value)}
+                      onClick={() => updateAnswer(current.questionId, value)}
                     >
                       {value}
                     </button>
@@ -284,18 +325,18 @@ export default function OnboardingPage() {
               <>
                 <textarea
                   className="textarea"
-                  value={answers[answerKey(current)] || ""}
-                  onChange={(event) => updateAnswer(current, event.target.value)}
+                  value={answers[current.questionId] || ""}
+                  onChange={(event) => updateAnswer(current.questionId, event.target.value)}
                 />
 
                 <p className="footnote">{t.onboarding.suggestions}</p>
                 <div className="suggestion-row">
-                  {current.suggestions.map((item) => (
+                  {(current.suggestions || []).map((item) => (
                     <button
                       type="button"
                       key={item}
                       className="suggestion-chip"
-                      onClick={() => updateAnswer(current, item)}
+                      onClick={() => updateAnswer(current.questionId, item)}
                     >
                       {item}
                     </button>
@@ -325,7 +366,9 @@ export default function OnboardingPage() {
 
       {affirmations.length > 0 && (
         <section className="card glow">
-          <h2>{t.onboarding.generatedTitle}</h2>
+          <h2>
+            {lang === "ru" ? `${userName}, твои аффирмации готовы` : `${userName}, your affirmations are ready`}
+          </h2>
           <p className="muted">{t.onboarding.generatedHint}</p>
 
           <div className="result-box">

@@ -27,7 +27,7 @@ def generate(payload: GenerateAffirmationsRequest, db: Session = Depends(get_db)
     if total_chars > MAX_TEXT_CHARS:
         raise HTTPException(status_code=400, detail="Input text is too long")
 
-    items = generate_affirmations(payload.goals, payload.language, payload.tone)
+    items = generate_affirmations(payload.goals, payload.language, payload.tone, payload.user_name or "")
     if not items:
         raise HTTPException(status_code=500, detail="Failed to generate affirmations")
 

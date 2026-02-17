@@ -9,12 +9,12 @@ from .llm_provider import generate_with_deepseek, generate_with_gigachat, genera
 from .safety import add_disclaimer, enforce_affirmation_style, sanitize
 
 AREA_LABELS_RU = {
-    "money": "финансы",
-    "health": "здоровье",
-    "relationships": "отношения",
-    "career": "карьера",
-    "body": "тело",
-    "sleep": "сон",
+    "money": "финансов",
+    "health": "здоровья",
+    "relationships": "отношений",
+    "career": "карьеры",
+    "body": "тела",
+    "sleep": "сна",
 }
 
 AREA_LABELS_EN = {
@@ -26,23 +26,8 @@ AREA_LABELS_EN = {
     "sleep": "sleep",
 }
 
-RU_BAD_STARTS = (
-    "как ",
-    "какой ",
-    "какие ",
-    "почему ",
-    "что ",
-    "где ",
-    "когда ",
-)
-EN_BAD_STARTS = (
-    "what ",
-    "which ",
-    "how ",
-    "why ",
-    "where ",
-    "when ",
-)
+RU_BAD_STARTS = ("как ", "какой ", "какие ", "почему ", "что ", "где ", "когда ")
+EN_BAD_STARTS = ("what ", "which ", "how ", "why ", "where ", "when ")
 
 RU_WEAK = {"хорошо", "классно", "нормально", "не знаю", "ок", "ok"}
 EN_WEAK = {"good", "fine", "ok", "nice", "i dont know", "i don't know"}
@@ -73,17 +58,16 @@ def _normalize(value: str, language: str) -> str:
 
     low = text.lower()
     if language == "ru":
-        prefixes = ["я хочу ", "хочу ", "я буду ", "буду ", "мне нужно ", "нужно "]
+        prefixes = ["я хочу ", "хочу ", "я буду ", "буду ", "мне нужно ", "нужно ", "я бы хотел ", "я бы хотела "]
     else:
-        prefixes = ["i want ", "want ", "i will ", "will ", "i need ", "need "]
+        prefixes = ["i want ", "want ", "i will ", "will ", "i need ", "need ", "i would like "]
 
     for prefix in prefixes:
         if low.startswith(prefix):
             text = text[len(prefix) :]
             break
 
-    text = text.strip(" .,!?:;")
-    return _clean(text)
+    return _clean(text.strip(" .,!?:;"))
 
 
 def _is_bad(text: str, language: str) -> bool:
@@ -100,14 +84,10 @@ def _is_bad(text: str, language: str) -> bool:
             return True
         if low in RU_WEAK:
             return True
-        if " в сфере " in low:
-            return True
     else:
         if any(low.startswith(prefix) for prefix in EN_BAD_STARTS):
             return True
         if low in EN_WEAK:
-            return True
-        if " in area " in low:
             return True
 
     return False
@@ -116,7 +96,7 @@ def _is_bad(text: str, language: str) -> bool:
 def _first_valid(values: Iterable[str], language: str, fallback: str) -> str:
     for raw in values:
         value = _normalize(raw, language)
-        if not _is_bad(value, language):
+        if value and not _is_bad(value, language):
             return value
     return fallback
 
@@ -131,134 +111,148 @@ def _faith_score(items: List[GoalAnswer]) -> float:
         val = int(digits)
         if 1 <= val <= 10:
             scores.append(val)
+
     if not scores:
         return 7.0
     return sum(scores) / len(scores)
 
 
-def _area_label(area: str, language: str) -> str:
-    if language == "ru":
-        return AREA_LABELS_RU.get(area, "жизнь")
-    return AREA_LABELS_EN.get(area, "life")
+def _with_name(line: str, user_name: str, language: str) -> str:
+    name = _clean(user_name)
+    if not name:
+        return line
+
+    if language == "ru" and line.startswith("Я есть "):
+        return f"Я есть {name}, {line[7:].lstrip()}"
+    if language == "en" and line.startswith("I am "):
+        return f"I am {name}, {line[5:].lstrip()}"
+
+    return line
 
 
-def _fallback_ru(area: str, items: List[GoalAnswer]) -> List[str]:
-    label = _area_label(area, "ru")
-    faith_low = _faith_score(items) < 5
+def _fallback_ru(area: str, items: List[GoalAnswer], user_name: str) -> List[str]:
+    area_label = AREA_LABELS_RU.get(area, "жизни")
+    soft_mode = _faith_score(items) < 5
 
     result = _first_valid(
         [_answer(items, "goal_real_desire"), _answer(items, "goal_life_change"), _answer(items, "goal_why")],
         "ru",
-        "стабильный результат, который усиливает мою жизнь",
+        "устойчивый результат, который усиливает мою жизнь",
     )
-    feelings = _first_valid(
+    feeling = _first_valid(
         [_answer(items, "goal_feeling"), _answer(items, "reality_fear")],
         "ru",
-        "спокойствие, ясность и уверенность",
+        "спокойствие, уверенность и легкость",
     )
     action = _first_valid(
         [_answer(items, "reality_current"), _answer(items, "reality_pattern")],
         "ru",
-        "ежедневные простые действия в нужном ритме",
+        "ежедневные точные действия в правильном ритме",
     )
     blocker = _first_valid(
         [_answer(items, "belief_why_not"), _answer(items, "belief_auto_thought"), _answer(items, "belief_childhood")],
         "ru",
-        "внутреннюю опору и зрелые решения",
+        "старую привычку сомневаться в себе",
     )
 
-    if faith_low:
-        raw_lines = [
-            f"Я есть человек, который мягко открывается росту в сфере {label}",
-            f"Я имею право укреплять результат через спокойные шаги каждый день",
-            f"Я есть внутреннее спокойствие и уважение к себе, когда выбираю {action}",
-            f"Я имею все больше подтверждений, что мой путь ведет к состоянию: {result}",
-            f"Я есть человек, который разрешает себе чувствовать {feelings}",
-            f"Я имею зрелую опору и отпускаю старый сценарий: {blocker}",
+    if soft_mode:
+        lines = [
+            f"Я есть человек, который мягко открывается росту в теме {area_label}",
+            f"Я имею право двигаться к результату: {result}",
+            f"Я есть спокойное уважение к себе, когда выбираю {action}",
+            f"Я имею устойчивый ритм и замечаю, как в моей жизни усиливается {feeling}",
+            f"Я есть новая внутренняя опора, которая оставляет в прошлом сценарий: {blocker}",
+            "Я имею пространство для роста и принимаю свой результат шаг за шагом",
         ]
     else:
-        raw_lines = [
+        lines = [
             f"Я есть человек, который уже живет в состоянии: {result}",
-            f"Я имею устойчивый ритм действий и каждый день выбираю {action}",
-            f"Я есть спокойная сила и ясность в теме {label}",
-            "Я имею зрелые решения, которые усиливают мой результат без перегруза",
-            f"Я есть благодарность и уверенность, когда ощущаю {feelings}",
-            f"Я имею внутреннюю опору, которая заменила прошлый сценарий: {blocker}",
+            f"Я имею ежедневный ритм действий: {action}",
+            f"Я есть спокойная сила и ясность в сфере {area_label}",
+            f"Я имею зрелые решения, которые устойчиво усиливают {result}",
+            f"Я есть уверенность и благодарность, когда ощущаю {feeling}",
+            f"Я имею внутреннюю опору и выбираю новый сценарий вместо: {blocker}",
         ]
 
+    if user_name:
+        lines[0] = _with_name(lines[0], user_name, "ru")
+
     out = []
-    for line in raw_lines:
-        safe = enforce_affirmation_style(sanitize(line), "ru")
+    for raw in lines:
+        safe = enforce_affirmation_style(sanitize(raw), "ru")
         if safe and not _is_bad(safe, "ru"):
             out.append(safe)
     return out
 
 
-def _fallback_en(area: str, items: List[GoalAnswer]) -> List[str]:
-    label = _area_label(area, "en")
-    faith_low = _faith_score(items) < 5
+def _fallback_en(area: str, items: List[GoalAnswer], user_name: str) -> List[str]:
+    area_label = AREA_LABELS_EN.get(area, "life")
+    soft_mode = _faith_score(items) < 5
 
     result = _first_valid(
         [_answer(items, "goal_real_desire"), _answer(items, "goal_life_change"), _answer(items, "goal_why")],
         "en",
-        "a stable result that improves my life",
+        "a steady result that improves my life",
     )
-    feelings = _first_valid(
+    feeling = _first_valid(
         [_answer(items, "goal_feeling"), _answer(items, "reality_fear")],
         "en",
-        "calm, clarity, and confidence",
+        "calm confidence and lightness",
     )
     action = _first_valid(
         [_answer(items, "reality_current"), _answer(items, "reality_pattern")],
         "en",
-        "simple daily actions in a healthy rhythm",
+        "daily focused actions in the right rhythm",
     )
     blocker = _first_valid(
         [_answer(items, "belief_why_not"), _answer(items, "belief_auto_thought"), _answer(items, "belief_childhood")],
         "en",
-        "inner stability and mature decisions",
+        "old self-doubt pattern",
     )
 
-    if faith_low:
-        raw_lines = [
-            f"I am a person who opens up to growth in {label} step by step",
-            "I have permission to build my result through calm consistent action",
+    if soft_mode:
+        lines = [
+            f"I am a person who gently opens up to growth in {area_label}",
+            f"I have permission to move toward this result: {result}",
             f"I am calm self-respect while I choose {action}",
-            f"I have growing evidence that my path leads to this state: {result}",
-            f"I am a person who allows myself to feel {feelings}",
-            f"I have inner stability and release the old pattern: {blocker}",
+            f"I have a steady rhythm and feel how {feeling} grows in my life",
+            f"I am an inner foundation that leaves this old pattern behind: {blocker}",
+            "I have enough space to grow and receive my result step by step",
         ]
     else:
-        raw_lines = [
+        lines = [
             f"I am a person who already lives in this state: {result}",
-            f"I have a steady daily rhythm and choose {action}",
-            f"I am calm strength and clarity in {label}",
-            "I have mature decisions that strengthen my result every day",
-            f"I am gratitude and confidence while I feel {feelings}",
-            f"I have an inner foundation that replaced the old pattern: {blocker}",
+            f"I have a daily action rhythm: {action}",
+            f"I am calm strength and clarity in {area_label}",
+            f"I have mature decisions that steadily reinforce {result}",
+            f"I am confidence and gratitude while I feel {feeling}",
+            f"I have inner stability and choose a new pattern instead of: {blocker}",
         ]
 
+    if user_name:
+        lines[0] = _with_name(lines[0], user_name, "en")
+
     out = []
-    for line in raw_lines:
-        safe = enforce_affirmation_style(sanitize(line), "en")
+    for raw in lines:
+        safe = enforce_affirmation_style(sanitize(raw), "en")
         if safe and not _is_bad(safe, "en"):
             out.append(safe)
     return out
 
 
 def _dedupe(items: List[str]) -> List[str]:
-    result: List[str] = []
+    out: List[str] = []
     seen = set()
     for item in items:
         key = item.strip().lower()
         if not key or key in seen:
             continue
         seen.add(key)
-        result.append(item)
-    return result
+        out.append(item)
+    return out
 
 
-def _postprocess(items: List[str], language: str) -> List[str]:
+def _postprocess(items: List[str], language: str, user_name: str) -> List[str]:
     out: List[str] = []
     for raw in items:
         value = enforce_affirmation_style(sanitize(raw), language)
@@ -266,48 +260,50 @@ def _postprocess(items: List[str], language: str) -> List[str]:
             continue
         if _is_bad(value, language):
             continue
-
-        low = value.lower()
-        if language == "ru" and low.startswith("я ") and not (low.startswith("я есть") or low.startswith("я имею")):
-            value = "Я есть " + value[2:].strip()
-        if language == "en" and low.startswith("i ") and not (low.startswith("i am") or low.startswith("i have")):
-            value = "I am " + value[2:].strip()
-
         out.append(value)
-    return _dedupe(out)
+
+    unique = _dedupe(out)
+    if user_name and unique:
+        unique[0] = _with_name(unique[0], user_name, language)
+    return unique
 
 
-def _fallback(goals: List[GoalAnswer], language: str) -> List[str]:
+def _fallback(goals: List[GoalAnswer], language: str, user_name: str) -> List[str]:
     grouped = _group(goals)
     if not grouped:
         grouped = {"health": []}
 
-    out: List[str] = []
+    lines: List[str] = []
     for area, items in grouped.items():
         if language == "ru":
-            out.extend(_fallback_ru(area, items))
+            lines.extend(_fallback_ru(area, items, user_name))
         else:
-            out.extend(_fallback_en(area, items))
-    return _dedupe(out)
+            lines.extend(_fallback_en(area, items, user_name))
+
+    return _dedupe(lines)
 
 
-def generate_affirmations(goals: List[GoalAnswer], language: str, tone: str) -> List[str]:
+def generate_affirmations(goals: List[GoalAnswer], language: str, tone: str, user_name: str = "") -> List[str]:
     grouped = _group(goals)
     area_count = max(1, len(grouped))
-    min_count = area_count * 5
+    min_count = area_count * 4
     max_count = area_count * 7
 
-    fallback = _fallback(goals, language)
+    fallback = _fallback(goals, language, user_name)
+
     provider = settings.llm_provider.lower().strip()
     llm_lines: List[str] = []
 
     try:
         if provider == "deepseek":
-            llm_lines = _postprocess(generate_with_deepseek(goals, language, tone), language)
+            llm_raw = generate_with_deepseek(goals, language, tone, user_name)
+            llm_lines = _postprocess(llm_raw, language, user_name)
         elif provider == "gigachat":
-            llm_lines = _postprocess(generate_with_gigachat(goals, language, tone), language)
+            llm_raw = generate_with_gigachat(goals, language, tone, user_name)
+            llm_lines = _postprocess(llm_raw, language, user_name)
         elif provider == "ollama":
-            llm_lines = _postprocess(generate_with_ollama(goals, language, tone), language)
+            llm_raw = generate_with_ollama(goals, language, tone, user_name)
+            llm_lines = _postprocess(llm_raw, language, user_name)
     except Exception:
         llm_lines = []
 

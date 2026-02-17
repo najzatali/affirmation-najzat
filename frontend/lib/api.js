@@ -1,15 +1,30 @@
-const API = process.env.NEXT_PUBLIC_API_URL || "";
+const RAW_BASE = (process.env.NEXT_PUBLIC_API_URL || "").trim();
 
-function ensureApi() {
-  if (!API) {
-    throw new Error("NEXT_PUBLIC_API_URL is empty");
+function runtimeBase() {
+  if (!RAW_BASE) return "";
+
+  // Codespaces safety: if build-time base is localhost but app is opened on github.dev,
+  // use relative /api proxy instead of broken browser localhost target.
+  if (typeof window !== "undefined") {
+    const host = window.location.hostname || "";
+    const remoteHost = host && host !== "localhost" && host !== "127.0.0.1";
+    if (remoteHost && RAW_BASE.includes("localhost")) {
+      return "";
+    }
   }
-  return API;
+
+  return RAW_BASE.replace(/\/$/, "");
+}
+
+function buildUrl(path) {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  const base = runtimeBase();
+  if (!base) return normalizedPath;
+  return `${base}${normalizedPath}`;
 }
 
 export async function apiGet(path) {
-  const base = ensureApi();
-  const response = await fetch(`${base}${path}`, {
+  const response = await fetch(buildUrl(path), {
     method: "GET",
     cache: "no-store",
   });
@@ -21,8 +36,7 @@ export async function apiGet(path) {
 }
 
 export async function apiPost(path, payload) {
-  const base = ensureApi();
-  const response = await fetch(`${base}${path}`, {
+  const response = await fetch(buildUrl(path), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -37,8 +51,7 @@ export async function apiPost(path, payload) {
 }
 
 export async function apiDelete(path) {
-  const base = ensureApi();
-  const response = await fetch(`${base}${path}`, {
+  const response = await fetch(buildUrl(path), {
     method: "DELETE",
   });
   const data = await response.json().catch(() => ({}));
@@ -49,5 +62,5 @@ export async function apiDelete(path) {
 }
 
 export function apiBase() {
-  return API;
+  return runtimeBase();
 }
