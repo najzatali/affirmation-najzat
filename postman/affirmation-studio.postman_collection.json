@@ -1,0 +1,30 @@
+{
+  "info": {
+    "name": "Affirmation Studio",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "Health",
+      "request": {
+        "method": "GET",
+        "url": "{{api_url}}/api/health"
+      }
+    },
+    {
+      "name": "Generate Affirmations",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "url": "{{api_url}}/api/affirmations/generate",
+        "body": {
+          "mode": "raw",
+          "raw": "{\n  \"language\": \"ru\",\n  \"tone\": \"calm\",\n  \"goals\": [{\"area\": \"health\", \"answer\": \"Хочу больше энергии\"}]\n}"
+        }
+      }
+    }
+  ],
+  "variable": [
+    { "key": "api_url", "value": "http://localhost:8000" }
+  ]
+}
